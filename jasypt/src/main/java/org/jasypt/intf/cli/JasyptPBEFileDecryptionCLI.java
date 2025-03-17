@@ -19,12 +19,19 @@
  */
 package org.jasypt.intf.cli;
 
+import java.io.FileInputStream;
 import java.io.IOException;
+import java.io.InputStream;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.Properties;
 
 import org.jasypt.commons.CommonUtils;
 import org.jasypt.encryption.pbe.config.SimpleStringPBEConfig;
+import org.jasypt.exceptions.EncryptionOperationNotPossibleException;
 import org.jasypt.intf.service.FileEncryptorService;
+import org.yaml.snakeyaml.Yaml;
 
 
 /**
@@ -101,8 +108,58 @@ public final class JasyptPBEFileDecryptionCLI {
                 ArgumentNaming.ARG_IV_GENERATOR_CLASS_NAME
             }
         };
-    
-    
+
+    public static String GIT_REPO_PATH = "/Users/himeshbhatia/git";
+    public static String MYKAARMA_CONFIG_REPO_PATH = GIT_REPO_PATH + "/mykaarma-config";
+
+    public static String INTERNAL_SYSTEMS_REPO_PATH = GIT_REPO_PATH + "/internal-systems";
+
+    public static String namespace = "transportation", env = "prod";
+
+    public static Map<String, String> serviceToJasyptPwdMap = new HashMap<>();
+
+    public static void getDeployments() {
+        Yaml yaml = new Yaml();
+
+        // Load YAML file from resources
+        try (InputStream inputStream = new FileInputStream(INTERNAL_SYSTEMS_REPO_PATH + "/kubernetes/" + env + "/" + namespace + "/deployment.yml")) {
+            if (inputStream == null) {
+                throw new RuntimeException("YAML file not found!");
+            }
+
+            // Load all YAML documents
+            Iterable<Object> documents = yaml.loadAll(inputStream);
+
+            // Iterate over documents and process them
+            for (Object document : documents) {
+                if (document instanceof Map) {
+                    Map<String, Object> data = (Map<String, Object>) document;
+//                    for (String key : data.keySet()) {
+//                        System.out.println("Found section: " + key + " -> " + data.get(key));
+//                    }
+                    String serviceName = (String) ((Map<String, Object>) data.get("metadata")).get("name");
+                    List<Map<String, String>> env = (List<Map<String, String>>)
+                        ((List<Map<String, Object>>)
+                            ((Map<String, Object>)
+                                ((Map<String, Object>)
+                                    ((Map<String, Object>)
+                                        (Map<String, Object>) data.get("spec"))
+                                        .get("template"))
+                                    .get("spec"))
+                                .get("containers"))
+                            .get(0).get("env");
+                    System.out.println(env);
+                    String jasyptPwd = env.stream().filter(envProp -> "jasypt.encryptor.password".equalsIgnoreCase(envProp.get("name"))).findFirst().get().get("value");
+                    System.out.println(jasyptPwd);
+                }
+            }
+
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+
+
     /**
      * <p>
      * CLI execution method.
@@ -112,6 +169,8 @@ public final class JasyptPBEFileDecryptionCLI {
      * decryption is to be done in-place.
      */
     public static void main(final String[] args) {
+
+        getDeployments();
 
         boolean verbose = CLIUtils.getVerbosity(args);
 
@@ -134,9 +193,9 @@ public final class JasyptPBEFileDecryptionCLI {
                         VALID_REQUIRED_ARGUMENTS, VALID_OPTIONAL_ARGUMENTS);
 
             CLIUtils.showEnvironment(verbose);
-            
-            final String location = System.getProperty("user.dir") + "/";
-            
+
+            final String location = MYKAARMA_CONFIG_REPO_PATH + "/prod/" ; //System.getProperty("user.dir") + "/";
+
             CLIUtils.showArgumentDescription(argumentValues, verbose);
             
             final String outputFilePath = decryptFile(location, argumentValues, verbose);
