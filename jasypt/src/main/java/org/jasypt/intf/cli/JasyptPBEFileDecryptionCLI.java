@@ -22,9 +22,11 @@ package org.jasypt.intf.cli;
 import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Properties;
 
 import org.jasypt.commons.CommonUtils;
@@ -113,16 +115,71 @@ public final class JasyptPBEFileDecryptionCLI {
     public static String MYKAARMA_CONFIG_REPO_PATH = GIT_REPO_PATH + "/mykaarma-config";
 
     public static String INTERNAL_SYSTEMS_REPO_PATH = GIT_REPO_PATH + "/internal-systems";
+    public static String VISHWAKARMA_REPO_PATH = GIT_REPO_PATH + "/vishwakarma";
 
-    public static String namespace = "transportation", env = "prod";
+    private enum ENV {
+        PROD("prod"),
+        PROD_CANARY("prod-canary"),
+        QA_AWS("qa-aws"),
+        QA_AWS_CANARY("qa-aws-canary"),
+        DEVVM("devvm"),
+        ;
+
+        private String value;
+        ENV(String value) {
+            this.value = value;
+        }
+
+        public String getValue() {
+            return value;
+        }
+
+        public void setValue(String value) {
+            this.value = value;
+        }
+    }
 
     public static Map<String, String> serviceToJasyptPwdMap = new HashMap<>();
 
-    public static void getDeployments() {
+    public static Map<String, String> serviceToMykaarmaConfigNameMap = new HashMap<String, String>() {{
+        put("kpickupdelivery-api-v2", "kpickupdelivery-api");
+        put("transportation-events-consumer", "transportation-events-consumer");
+        put("customer-actions-server", "customer-actions");
+        put("kridesharing-api", "kridesharing-api");
+        put("mobile-service-server", "mobile-service-api");
+        put("transportation-route-finder", "transportation-route-finder");
+        put("mobile-service-aggregator-server", "mobile-service-aggregator");
+        put("mobile-check-in-server", "mobile-check-in");
+        put("pickup-delivery-aggregator-server", "pickup-delivery-aggregator");
+        put("kpickupdelivery-processor", "kpickupdelivery-processor");
+    }};
+
+    public static Map<String, Map<String, String>> serviceToEnvToJasyptPwdMap = new HashMap<>();
+
+    public static void fetchEnvSpecificJasyptPasswords(String namespace) {
+        Map<String, String> serviceToJasyptPwdMapProd = getJasyptPasswordsForDeploymentFile(INTERNAL_SYSTEMS_REPO_PATH + "/kubernetes/" + "prod" + "/" + namespace + "/deployment.yml");
+        Map<String, String> serviceToJasyptPwdMapProdCanary = getJasyptPasswordsForDeploymentFile(INTERNAL_SYSTEMS_REPO_PATH + "/kubernetes/" + "prod" + "/" + "canary" + "/deployment.yml");
+        Map<String, String> serviceToJasyptPwdMapQa = getJasyptPasswordsForDeploymentFile(INTERNAL_SYSTEMS_REPO_PATH + "/kubernetes/" + "qa-aws" + "/" + namespace + "/deployment.yml");
+        Map<String, String> serviceToJasyptPwdMapQaCanary = getJasyptPasswordsForDeploymentFile(INTERNAL_SYSTEMS_REPO_PATH + "/kubernetes/" + "qa-aws" + "/" + "canary" + "/deployment.yml");
+        Map<String, String> serviceToJasyptPwdMapDev = getJasyptPasswordsForDeploymentFile(VISHWAKARMA_REPO_PATH + "/kubernetes/" + namespace + "/deployment.yml");
+
+        for (String serviceName: serviceToJasyptPwdMapProd.keySet()) {
+            Map<String, String> envToJasyptPwdMap = new HashMap<>();
+            envToJasyptPwdMap.put(ENV.PROD.getValue(), serviceToJasyptPwdMapProd.get(serviceName));
+            envToJasyptPwdMap.put(ENV.PROD_CANARY.getValue(), serviceToJasyptPwdMapProdCanary.get(serviceName + "-canary"));
+            envToJasyptPwdMap.put(ENV.QA_AWS.getValue(), serviceToJasyptPwdMapQa.get(serviceName));
+            envToJasyptPwdMap.put(ENV.QA_AWS_CANARY.getValue(), serviceToJasyptPwdMapQaCanary.get(serviceName + "-canary"));
+            envToJasyptPwdMap.put(ENV.DEVVM.getValue(), serviceToJasyptPwdMapDev.get(serviceName));
+            serviceToEnvToJasyptPwdMap.put(serviceName, envToJasyptPwdMap);
+        }
+    }
+
+    public static Map<String, String> getJasyptPasswordsForDeploymentFile(String deploymentFilePath) {
+        Map<String, String> serviceToJasyptPwdMap = new HashMap<>();
         Yaml yaml = new Yaml();
 
         // Load YAML file from resources
-        try (InputStream inputStream = new FileInputStream(INTERNAL_SYSTEMS_REPO_PATH + "/kubernetes/" + env + "/" + namespace + "/deployment.yml")) {
+        try (InputStream inputStream = new FileInputStream(deploymentFilePath)) {
             if (inputStream == null) {
                 throw new RuntimeException("YAML file not found!");
             }
@@ -148,15 +205,25 @@ public final class JasyptPBEFileDecryptionCLI {
                                     .get("spec"))
                                 .get("containers"))
                             .get(0).get("env");
-                    System.out.println(env);
-                    String jasyptPwd = env.stream().filter(envProp -> "jasypt.encryptor.password".equalsIgnoreCase(envProp.get("name"))).findFirst().get().get("value");
-                    System.out.println(jasyptPwd);
+                    if (env == null) {
+                        System.out.println(" WARN - For " + serviceName + " - no env vars found");
+                        continue;
+                    }
+
+                    Optional<Map<String, String>> jasyptPwdMap = env.stream().filter(envProp -> "jasypt.encryptor.password".equalsIgnoreCase(envProp.get("name"))).findFirst();
+                    if (!jasyptPwdMap.isPresent()) {
+                        System.out.println(" WARN - For " + serviceName + " - env vars doesn't contain jasypt pwd");
+                        continue;
+                    }
+                    String jasyptPwd = jasyptPwdMap.get().get("value");
+                    serviceToJasyptPwdMap.put(serviceName, jasyptPwd);
                 }
             }
 
         } catch (Exception e) {
             e.printStackTrace();
         }
+        return serviceToJasyptPwdMap;
     }
 
 
@@ -168,14 +235,110 @@ public final class JasyptPBEFileDecryptionCLI {
      * @param args the command execution arguments. Not providing the "outputFile" argument implies that
      * decryption is to be done in-place.
      */
-    public static void main(final String[] args) {
+    public static void main(String[] args) {
+        String namespace = "transportation";
 
-        getDeployments();
+        fetchEnvSpecificJasyptPasswords(namespace);
 
+//        inputFile=kpickupdelivery-api.yml
+//        jasypt.encryptor.password="1CC0WGAoiIFj"
+//        jasypt.encryptor.algorithm="PBEWithMD5AndDES"
+//        jasypt.encryptor.key-obtention-iterations=1000
+//        jasypt.encryptor.provider-name=SunJCE
+//        jasypt.encryptor.salt-generator-classname=org.jasypt.salt.RandomSaltGenerator
+//        jasypt.encryptor.iv-generator-classname=org.jasypt.iv.NoIvGenerator
+//        jasypt.encryptor.string-output-type=base64
+
+//        decryptFiles(args);
+
+
+        for (String serviceName: serviceToEnvToJasyptPwdMap.keySet()) {
+            if (!serviceToMykaarmaConfigNameMap.containsKey(serviceName) || serviceToMykaarmaConfigNameMap.get(serviceName) == null) {
+                System.out.println(" WARN - For " + serviceName + " - serviceToMykaarmaConfigNameMap doesn't contain serviceName");
+                continue;
+            }
+            Map<String, String> envToJasyptPwdMap = serviceToEnvToJasyptPwdMap.get(serviceName);
+            for (String env: envToJasyptPwdMap.keySet()) {
+                if (!envToJasyptPwdMap.containsKey(env) || envToJasyptPwdMap.get(env) == null) {
+                    System.out.println(" WARN - For " + serviceName + " and env=" + env + " - no jasypt pwd found");
+                    continue;
+                }
+                String myKaarmaConfigPath = env + "/"
+                    + serviceToMykaarmaConfigNameMap.get(serviceName)
+                    + (isCanaryEnv(env) ? "-canary" : "")
+                    + ".yml";
+                String jasyptPwd = envToJasyptPwdMap.get(env);
+                String[] newArgs = updateArgsFromYml(args, myKaarmaConfigPath, jasyptPwd);
+                decryptFiles(newArgs);
+            }
+        }
+    }
+
+    public static boolean isCanaryEnv(String env) {
+        return ENV.PROD_CANARY.getValue().equalsIgnoreCase(env) || ENV.QA_AWS_CANARY.getValue().equalsIgnoreCase(env);
+    }
+
+    // Recursively flatten the nested YAML map
+    private static void flattenYaml(String parentKey, Map<String, Object> yamlMap, Map<String, Object> flatMap) {
+        for (Map.Entry<String, Object> entry : yamlMap.entrySet()) {
+            String key = parentKey.isEmpty() ? entry.getKey() : parentKey + "." + entry.getKey();
+
+            if (entry.getValue() instanceof Map) {
+                // Recursively flatten nested maps
+                flattenYaml(key, (Map<String, Object>) entry.getValue(), flatMap);
+            } else {
+                // Store flattened key-value pair
+//                flatMap.put(key, String.valueOf(entry.getValue()));
+                flatMap.put(key, entry.getValue());
+            }
+        }
+    }
+
+    public static String[] updateArgsFromYml(String[] args, String ymlPath, String jasyptPwd) {
+        List<String> newArgs = new ArrayList<>();
+        Yaml yaml = new Yaml();
+        String inputYmlFilePath = MYKAARMA_CONFIG_REPO_PATH + "/" + ymlPath;
+
+        // Load YAML file from resources
+        try (InputStream inputStream = new FileInputStream(inputYmlFilePath)) {
+            if (inputStream == null) {
+                throw new RuntimeException("YAML file not found!");
+            }
+
+            // Load all YAML documents
+            Iterable<Object> documents = yaml.loadAll(inputStream);
+
+            // Iterate over documents and process them
+            for (Object document : documents) {
+                if (document instanceof Map) {
+                    Map<String, Object> data = (Map<String, Object>) document;
+                    // Flatten the YAML structure
+                    Map<String, Object> flatYamlMap = new HashMap<>();
+                    if (data.containsKey("jasypt")) {
+                        flattenYaml("jasypt", (Map<String, Object>) data.get("jasypt"), flatYamlMap);
+                    } else {
+                        flatYamlMap = data;
+                    }
+
+                    for (String[] argumentNames: VALID_OPTIONAL_ARGUMENTS) {
+                        if (flatYamlMap.containsKey(argumentNames[0])) {
+                            newArgs.add(argumentNames[0] + "=" + flatYamlMap.get(argumentNames[0]));
+                        }
+                    }
+                }
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+        newArgs.add(ArgumentNaming.ARG_INPUT_FILE + "=" + ymlPath); //inputYmlFilePath
+        newArgs.add(ArgumentNaming.ARG_PASSWORD + "=" + jasyptPwd);
+        return newArgs.toArray(new String[newArgs.size()]);
+    }
+
+    public static void decryptFiles(String[] args) {
         boolean verbose = CLIUtils.getVerbosity(args);
-
         try {
-            
+
             String applicationName = null;
             String[] arguments = null;
             if (args[0] == null || args[0].indexOf("=") != -1) {
@@ -186,28 +349,27 @@ public final class JasyptPBEFileDecryptionCLI {
                 arguments = new String[args.length - 1];
                 System.arraycopy(args, 1, arguments, 0, args.length - 1);
             }
-            
-            final Properties argumentValues = 
+
+            final Properties argumentValues =
                 CLIUtils.getArgumentValues(
-                        applicationName, arguments, 
-                        VALID_REQUIRED_ARGUMENTS, VALID_OPTIONAL_ARGUMENTS);
+                    applicationName, arguments,
+                    VALID_REQUIRED_ARGUMENTS, VALID_OPTIONAL_ARGUMENTS);
 
             CLIUtils.showEnvironment(verbose);
 
-            final String location = MYKAARMA_CONFIG_REPO_PATH + "/prod/" ; //System.getProperty("user.dir") + "/";
+            final String location = MYKAARMA_CONFIG_REPO_PATH + "/" ; //System.getProperty("user.dir") + "/";
 
             CLIUtils.showArgumentDescription(argumentValues, verbose);
-            
+
             final String outputFilePath = decryptFile(location, argumentValues, verbose);
-            
+
             final String result = "Decryption complete and is written at: " + outputFilePath;
-            
+
             CLIUtils.showOutput(result, verbose);
-            
+
         } catch (Throwable t) {
             CLIUtils.showError(t, verbose);
         }
-        
     }
     
     /**
