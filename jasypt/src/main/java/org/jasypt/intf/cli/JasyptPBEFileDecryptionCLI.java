@@ -206,7 +206,7 @@ public final class JasyptPBEFileDecryptionCLI {
                                 .get("containers"))
                             .get(0).get("env");
                     if (env == null) {
-                        System.out.println(" WARN - For " + serviceName + " - no env vars found");
+                        if (printUselessLogs) System.out.println(" WARN - For " + serviceName + " - no env vars found");
                         continue;
                     }
 
@@ -226,6 +226,9 @@ public final class JasyptPBEFileDecryptionCLI {
         return serviceToJasyptPwdMap;
     }
 
+    static String namespace = "transportation";
+    static boolean printUselessLogs = false;
+
 
     /**
      * <p>
@@ -236,8 +239,6 @@ public final class JasyptPBEFileDecryptionCLI {
      * decryption is to be done in-place.
      */
     public static void main(String[] args) {
-        String namespace = "transportation";
-
         fetchEnvSpecificJasyptPasswords(namespace);
 
 //        inputFile=kpickupdelivery-api.yml
