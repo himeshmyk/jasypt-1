@@ -286,7 +286,7 @@ public final class JasyptPBEFileDecryptionCLI {
             Map<String, String> envToJasyptPwdMap = serviceToEnvToJasyptPwdMap.get(serviceName);
 
             if (serviceToMykaarmaConfigNameMap.containsKey(serviceName) && serviceToMykaarmaConfigNameMap.get(serviceName) != null) {
-//                decryptMyKaarmaConfig(args, serviceName, envToJasyptPwdMap);
+                decryptMyKaarmaConfig(args, serviceName, envToJasyptPwdMap);
             } else if (serviceToApplicationYmlRelativePathMap.containsKey(serviceName) && serviceToApplicationYmlRelativePathMap.get(serviceName) != null) {
                 decryptApplicationYml(args, serviceName, envToJasyptPwdMap);
             } else {
