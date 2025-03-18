@@ -154,6 +154,12 @@ public final class JasyptPBEFileDecryptionCLI {
         put("kpickupdelivery-processor", "kpickupdelivery-processor");
     }};
 
+    public static Map<String, String> serviceToApplicationYmlRelativePathMap = new HashMap<String, String>() {{
+        put("email-integration", "email-integration/src/main/resources/application.yml");
+        put("vault-api", "vault/server/src/main/resources/application.yml");
+        put("mkhtmltopdf-api", "mkhtmltopdf/server/src/main/resources/application.yml");
+    }};
+
     public static Map<String, Map<String, String>> serviceToEnvToJasyptPwdMap = new HashMap<>();
 
     public static void fetchEnvSpecificJasyptPasswords(String namespace) {
@@ -254,11 +260,20 @@ public final class JasyptPBEFileDecryptionCLI {
 
 
         for (String serviceName: serviceToEnvToJasyptPwdMap.keySet()) {
-            if (!serviceToMykaarmaConfigNameMap.containsKey(serviceName) || serviceToMykaarmaConfigNameMap.get(serviceName) == null) {
-                System.out.println(" WARN - For " + serviceName + " - serviceToMykaarmaConfigNameMap doesn't contain serviceName");
-                continue;
-            }
             Map<String, String> envToJasyptPwdMap = serviceToEnvToJasyptPwdMap.get(serviceName);
+
+            if (serviceToMykaarmaConfigNameMap.containsKey(serviceName) && serviceToMykaarmaConfigNameMap.get(serviceName) != null) {
+//                decryptMyKaarmaConfig(args, serviceName, envToJasyptPwdMap);
+            } else if (serviceToApplicationYmlRelativePathMap.containsKey(serviceName) && serviceToApplicationYmlRelativePathMap.get(serviceName) != null) {
+                decryptApplicationYml(args, serviceName, envToJasyptPwdMap);
+            } else {
+                if (printUselessLogs) System.out.println(" WARN - For " + serviceName + " - neither serviceToMykaarmaConfigNameMap nor serviceToApplicationYmlRelativePathMap contains serviceName");
+            }
+        }
+    }
+
+    private static void decryptMyKaarmaConfig(String[] args, String serviceName,
+        Map<String, String> envToJasyptPwdMap) {
             for (String env: envToJasyptPwdMap.keySet()) {
                 if (!envToJasyptPwdMap.containsKey(env) || envToJasyptPwdMap.get(env) == null) {
                     System.out.println(" WARN - For " + serviceName + " and env=" + env + " - no jasypt pwd found");
@@ -272,6 +287,11 @@ public final class JasyptPBEFileDecryptionCLI {
                 String[] newArgs = updateArgsFromYml(args, myKaarmaConfigPath, jasyptPwd);
                 decryptFiles(newArgs);
             }
+    }
+
+    private static void decryptApplicationYml(String[] args, String serviceName,
+        Map<String, String> envToJasyptPwdMap) {
+    }
         }
     }
 
