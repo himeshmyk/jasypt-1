@@ -181,14 +181,30 @@ public final class JasyptPBEFileDecryptionCLI {
     }};
 
     public static Map<String, Map<String, String>> serviceToEnvToJasyptPwdMap = new HashMap<>();
-    public static Map<String, Map<String, String>> serviceToEnvToJasyptNewPwdMap = new HashMap<>();
+    public static Map<String, Map<String, String>> envToServiceToJasyptNewPwdMap = new HashMap<>();
+
+    public static String getDeploymentFilePath(ENV env) {
+        switch (env) {
+            case PROD:
+                return INTERNAL_SYSTEMS_REPO_PATH + "/kubernetes/" + "prod" + "/" + namespace + "/deployment.yml";
+            case PROD_CANARY:
+                return INTERNAL_SYSTEMS_REPO_PATH + "/kubernetes/" + "prod" + "/" + "canary" + "/deployment.yml";
+            case QA_AWS:
+                return INTERNAL_SYSTEMS_REPO_PATH + "/kubernetes/" + "qa-aws" + "/" + namespace + "/deployment.yml";
+            case QA_AWS_CANARY:
+                return INTERNAL_SYSTEMS_REPO_PATH + "/kubernetes/" + "qa-aws" + "/" + "canary" + "/deployment.yml";
+            case DEVVM:
+                return VISHWAKARMA_REPO_PATH + "/kubernetes/" + namespace + "/deployment.yml";
+        }
+        return null;
+    }
 
     public static void fetchEnvSpecificJasyptPasswords(String namespace) {
-        Map<String, String> serviceToJasyptPwdMapProd = getJasyptPasswordsForDeploymentFile(INTERNAL_SYSTEMS_REPO_PATH + "/kubernetes/" + "prod" + "/" + namespace + "/deployment.yml");
-        Map<String, String> serviceToJasyptPwdMapProdCanary = getJasyptPasswordsForDeploymentFile(INTERNAL_SYSTEMS_REPO_PATH + "/kubernetes/" + "prod" + "/" + "canary" + "/deployment.yml");
-        Map<String, String> serviceToJasyptPwdMapQa = getJasyptPasswordsForDeploymentFile(INTERNAL_SYSTEMS_REPO_PATH + "/kubernetes/" + "qa-aws" + "/" + namespace + "/deployment.yml");
-        Map<String, String> serviceToJasyptPwdMapQaCanary = getJasyptPasswordsForDeploymentFile(INTERNAL_SYSTEMS_REPO_PATH + "/kubernetes/" + "qa-aws" + "/" + "canary" + "/deployment.yml");
-        Map<String, String> serviceToJasyptPwdMapDev = getJasyptPasswordsForDeploymentFile(VISHWAKARMA_REPO_PATH + "/kubernetes/" + namespace + "/deployment.yml");
+        Map<String, String> serviceToJasyptPwdMapProd = getJasyptPasswordsForDeploymentFile(getDeploymentFilePath(ENV.PROD));
+        Map<String, String> serviceToJasyptPwdMapProdCanary = getJasyptPasswordsForDeploymentFile(getDeploymentFilePath(ENV.PROD_CANARY));
+        Map<String, String> serviceToJasyptPwdMapQa = getJasyptPasswordsForDeploymentFile(getDeploymentFilePath(ENV.QA_AWS));
+        Map<String, String> serviceToJasyptPwdMapQaCanary = getJasyptPasswordsForDeploymentFile(getDeploymentFilePath(ENV.QA_AWS_CANARY));
+        Map<String, String> serviceToJasyptPwdMapDev = getJasyptPasswordsForDeploymentFile(getDeploymentFilePath(ENV.DEVVM));
 
         for (String serviceName: serviceToJasyptPwdMapProd.keySet()) {
             Map<String, String> envToJasyptPwdMap = new HashMap<>();
@@ -255,8 +271,8 @@ public final class JasyptPBEFileDecryptionCLI {
 
     static String namespace = "transportation";
     static boolean printUselessLogs = false;
-    static boolean encrypt = false;
-    static boolean shouldGenerateNewPassword = false;
+    static boolean encrypt = true;
+    static boolean shouldGenerateNewPassword = true;
     static int pwdLength = 20;
 
 
@@ -295,8 +311,8 @@ public final class JasyptPBEFileDecryptionCLI {
             }
         }
 
-        System.out.println("--------serviceToEnvToJasyptNewPwdMap---------");
-        System.out.println(serviceToEnvToJasyptNewPwdMap);
+        System.out.println("--------envToServiceToJasyptNewPwdMap---------");
+        System.out.println(envToServiceToJasyptNewPwdMap);
 
 
     }
@@ -398,8 +414,7 @@ public final class JasyptPBEFileDecryptionCLI {
                 final String newJasyptPwd = generateRandomPassword(pwdLength);
                 newArgs.add(ArgumentNaming.ARG_PASSWORD + "=" + newJasyptPwd);
                 String profile = ((String) yamlData.get("spring.profiles"));
-                serviceToEnvToJasyptNewPwdMap.computeIfAbsent(serviceName, k -> new HashMap<>());
-                serviceToEnvToJasyptNewPwdMap.get(serviceName).put(profile, newJasyptPwd);
+                updateNewJasyptPwdInMap(profile, serviceName, newJasyptPwd);
             } else {
                 newArgs.add(ArgumentNaming.ARG_PASSWORD + "=" + jasyptPwd);
             }
@@ -510,12 +525,16 @@ public final class JasyptPBEFileDecryptionCLI {
         if (encrypt && shouldGenerateNewPassword) {
             final String newJasyptPwd = generateRandomPassword(pwdLength);
             newArgs.add(ArgumentNaming.ARG_PASSWORD + "=" + newJasyptPwd);
-            serviceToEnvToJasyptNewPwdMap.computeIfAbsent(serviceName, k -> new HashMap<>());
-            serviceToEnvToJasyptNewPwdMap.get(serviceName).put(env, newJasyptPwd);
+            updateNewJasyptPwdInMap(env, serviceName, newJasyptPwd);
         } else {
             newArgs.add(ArgumentNaming.ARG_PASSWORD + "=" + jasyptPwd);
         }
         return newArgs.toArray(new String[newArgs.size()]);
+    }
+
+    public static void updateNewJasyptPwdInMap(String profile, String serviceName, String newJasyptPwd) {
+        envToServiceToJasyptNewPwdMap.computeIfAbsent(profile, k -> new HashMap<>());
+        envToServiceToJasyptNewPwdMap.get(profile).put(serviceName, newJasyptPwd);
     }
 
     public static void decryptFiles(String location, String[] args) {
