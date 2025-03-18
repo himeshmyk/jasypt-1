@@ -161,8 +161,6 @@ public final class JasyptPBEFileDecryptionCLI {
         }
     }
 
-    public static Map<String, String> serviceToJasyptPwdMap = new HashMap<>();
-
     public static Map<String, String> serviceToMykaarmaConfigNameMap = new HashMap<String, String>() {{
         put("kpickupdelivery-api-v2", "kpickupdelivery-api");
         put("transportation-events-consumer", "transportation-events-consumer");
@@ -183,6 +181,7 @@ public final class JasyptPBEFileDecryptionCLI {
     }};
 
     public static Map<String, Map<String, String>> serviceToEnvToJasyptPwdMap = new HashMap<>();
+    public static Map<String, Map<String, String>> serviceToEnvToJasyptNewPwdMap = new HashMap<>();
 
     public static void fetchEnvSpecificJasyptPasswords(String namespace) {
         Map<String, String> serviceToJasyptPwdMapProd = getJasyptPasswordsForDeploymentFile(INTERNAL_SYSTEMS_REPO_PATH + "/kubernetes/" + "prod" + "/" + namespace + "/deployment.yml");
@@ -257,6 +256,8 @@ public final class JasyptPBEFileDecryptionCLI {
     static String namespace = "transportation";
     static boolean printUselessLogs = false;
     static boolean encrypt = false;
+    static boolean shouldGenerateNewPassword = false;
+    static int pwdLength = 20;
 
 
     /**
@@ -293,6 +294,24 @@ public final class JasyptPBEFileDecryptionCLI {
                 if (printUselessLogs) System.out.println(" WARN - For " + serviceName + " - neither serviceToMykaarmaConfigNameMap nor serviceToApplicationYmlRelativePathMap contains serviceName");
             }
         }
+
+        System.out.println("--------serviceToEnvToJasyptNewPwdMap---------");
+        System.out.println(serviceToEnvToJasyptNewPwdMap);
+
+
+    }
+
+    public static String generateRandomPassword(int length) {
+        // 4 base64 chars = 3 bytes, so we generate a byte array accordingly
+        int byteLength = 3 * (int) Math.ceil(length / 4.0);
+        byte[] randomBytes = new byte[byteLength];
+
+        // SecureRandom is used for cryptographic randomness
+        new SecureRandom().nextBytes(randomBytes);
+
+        // Encode to Base64 and take the required substring
+        String base64String = Base64.getEncoder().encodeToString(randomBytes);
+        return base64String.substring(0, length);
     }
 
     private static void decryptMyKaarmaConfig(String[] args, String serviceName,
@@ -307,7 +326,7 @@ public final class JasyptPBEFileDecryptionCLI {
                 + (isCanaryEnv(env) ? "-canary" : "")
                 + ".yml";
             String jasyptPwd = envToJasyptPwdMap.get(env);
-            String[] newArgs = updateArgsFromYml(args, myKaarmaConfigPath, jasyptPwd);
+            String[] newArgs = updateArgsFromYml(args, myKaarmaConfigPath, jasyptPwd, serviceName, env);
             final String location = MYKAARMA_CONFIG_REPO_PATH + "/" ; //System.getProperty("user.dir") + "/";
             decryptFiles(location, newArgs);
         }
@@ -316,10 +335,10 @@ public final class JasyptPBEFileDecryptionCLI {
     private static void decryptApplicationYml(String[] args, String serviceName,
         Map<String, String> envToJasyptPwdMap) {
         String applicationYmlPath = serviceToApplicationYmlRelativePathMap.get(serviceName);
-        loadAndDecryptYaml(args, applicationYmlPath, envToJasyptPwdMap);
+        loadAndDecryptYaml(args, serviceName, applicationYmlPath, envToJasyptPwdMap);
     }
 
-    public static void loadAndDecryptYaml(String[] args, String ymlPath, Map<String, String> envToJasyptPwdMap) {
+    public static void loadAndDecryptYaml(String[] args, String serviceName, String ymlPath, Map<String, String> envToJasyptPwdMap) {
         List<String> newArgs = new ArrayList<>();
         Yaml yaml = new Yaml();
         String inputYmlFilePath = GIT_REPO_PATH + "/" + ymlPath;
@@ -342,7 +361,7 @@ public final class JasyptPBEFileDecryptionCLI {
         // Step 2: Process each YAML document
         List<Map<String, Object>> finalYamlDocumentsForThisService = new ArrayList<>();
         for (Map<String, Object> doc : yamlDocumentsForThisService) {
-            processYamlDocument(doc, envToJasyptPwdMap);
+            processYamlDocument(serviceName, doc, envToJasyptPwdMap);
             finalYamlDocumentsForThisService.add(doc);
         }
 
@@ -350,7 +369,7 @@ public final class JasyptPBEFileDecryptionCLI {
         writeYamlToFile(inputYmlFilePath, yamlDocumentsForThisService);
     }
 
-    private static void processYamlDocument(Map<String, Object> yamlData, Map<String, String> envToJasyptPwdMap) {
+    private static void processYamlDocument(String serviceName, Map<String, Object> yamlData, Map<String, String> envToJasyptPwdMap) {
         try {
             // Step 1: Write the original YAML data to a temp file
             String tmpFilePath = TMP_FOLDER_PATH + "/Uyaml_temp" + (System.currentTimeMillis()%17);
@@ -375,7 +394,15 @@ public final class JasyptPBEFileDecryptionCLI {
             if (jasyptPwd == null) { return; }
 
             newArgs.add(ArgumentNaming.ARG_INPUT_FILE + "=" + tempFile.getAbsolutePath()); //inputYmlFilePath
-            newArgs.add(ArgumentNaming.ARG_PASSWORD + "=" + jasyptPwd);
+            if (encrypt && shouldGenerateNewPassword) {
+                final String newJasyptPwd = generateRandomPassword(pwdLength);
+                newArgs.add(ArgumentNaming.ARG_PASSWORD + "=" + newJasyptPwd);
+                String profile = ((String) yamlData.get("spring.profiles"));
+                serviceToEnvToJasyptNewPwdMap.computeIfAbsent(serviceName, k -> new HashMap<>());
+                serviceToEnvToJasyptNewPwdMap.get(serviceName).put(profile, newJasyptPwd);
+            } else {
+                newArgs.add(ArgumentNaming.ARG_PASSWORD + "=" + jasyptPwd);
+            }
             // Step 3: Call decryptFiles with the flattened "jasypt" values and temp file path
             decryptFiles("", newArgs.toArray(new String[newArgs.size()]));
 
@@ -443,7 +470,7 @@ public final class JasyptPBEFileDecryptionCLI {
         }
     }
 
-    public static String[] updateArgsFromYml(String[] args, String ymlPath, String jasyptPwd) {
+    public static String[] updateArgsFromYml(String[] args, String ymlPath, String jasyptPwd, String serviceName, String env) {
         List<String> newArgs = new ArrayList<>();
         Yaml yaml = new Yaml();
         String inputYmlFilePath = MYKAARMA_CONFIG_REPO_PATH + "/" + ymlPath;
@@ -480,7 +507,14 @@ public final class JasyptPBEFileDecryptionCLI {
             e.printStackTrace();
         }
         newArgs.add(ArgumentNaming.ARG_INPUT_FILE + "=" + ymlPath); //inputYmlFilePath
-        newArgs.add(ArgumentNaming.ARG_PASSWORD + "=" + jasyptPwd);
+        if (encrypt && shouldGenerateNewPassword) {
+            final String newJasyptPwd = generateRandomPassword(pwdLength);
+            newArgs.add(ArgumentNaming.ARG_PASSWORD + "=" + newJasyptPwd);
+            serviceToEnvToJasyptNewPwdMap.computeIfAbsent(serviceName, k -> new HashMap<>());
+            serviceToEnvToJasyptNewPwdMap.get(serviceName).put(env, newJasyptPwd);
+        } else {
+            newArgs.add(ArgumentNaming.ARG_PASSWORD + "=" + jasyptPwd);
+        }
         return newArgs.toArray(new String[newArgs.size()]);
     }
 
