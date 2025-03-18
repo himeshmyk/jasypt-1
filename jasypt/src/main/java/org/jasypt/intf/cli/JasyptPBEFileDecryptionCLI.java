@@ -19,10 +19,17 @@
  */
 package org.jasypt.intf.cli;
 
+import java.io.BufferedWriter;
+import java.io.File;
 import java.io.FileInputStream;
 import java.io.IOException;
 import java.io.InputStream;
+import java.nio.file.Files;
+import java.nio.file.Paths;
+import java.security.SecureRandom;
 import java.util.ArrayList;
+import java.util.Base64;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -33,6 +40,7 @@ import org.jasypt.commons.CommonUtils;
 import org.jasypt.encryption.pbe.config.SimpleStringPBEConfig;
 import org.jasypt.exceptions.EncryptionOperationNotPossibleException;
 import org.jasypt.intf.service.FileEncryptorService;
+import org.yaml.snakeyaml.DumperOptions;
 import org.yaml.snakeyaml.Yaml;
 
 
@@ -112,6 +120,7 @@ public final class JasyptPBEFileDecryptionCLI {
         };
 
     public static String GIT_REPO_PATH = "/Users/himeshbhatia/git";
+    public static String TMP_FOLDER_PATH = "/Users/himeshbhatia/Desktop/tmp";
     public static String MYKAARMA_CONFIG_REPO_PATH = GIT_REPO_PATH + "/mykaarma-config";
 
     public static String INTERNAL_SYSTEMS_REPO_PATH = GIT_REPO_PATH + "/internal-systems";
@@ -136,6 +145,19 @@ public final class JasyptPBEFileDecryptionCLI {
 
         public void setValue(String value) {
             this.value = value;
+        }
+
+        public static ENV getEnumValue(String value) {
+            if (value == null) {
+                return null;
+            }
+            ENV envs[] = ENV.values();
+            for (ENV env : envs) {
+                if (env.getValue().equalsIgnoreCase(value)) {
+                    return env;
+                }
+            }
+            return null;
         }
     }
 
@@ -234,6 +256,7 @@ public final class JasyptPBEFileDecryptionCLI {
 
     static String namespace = "transportation";
     static boolean printUselessLogs = false;
+    static boolean encrypt = false;
 
 
     /**
@@ -274,24 +297,129 @@ public final class JasyptPBEFileDecryptionCLI {
 
     private static void decryptMyKaarmaConfig(String[] args, String serviceName,
         Map<String, String> envToJasyptPwdMap) {
-            for (String env: envToJasyptPwdMap.keySet()) {
-                if (!envToJasyptPwdMap.containsKey(env) || envToJasyptPwdMap.get(env) == null) {
-                    System.out.println(" WARN - For " + serviceName + " and env=" + env + " - no jasypt pwd found");
-                    continue;
-                }
-                String myKaarmaConfigPath = env + "/"
-                    + serviceToMykaarmaConfigNameMap.get(serviceName)
-                    + (isCanaryEnv(env) ? "-canary" : "")
-                    + ".yml";
-                String jasyptPwd = envToJasyptPwdMap.get(env);
-                String[] newArgs = updateArgsFromYml(args, myKaarmaConfigPath, jasyptPwd);
-                decryptFiles(newArgs);
+        for (String env: envToJasyptPwdMap.keySet()) {
+            if (!envToJasyptPwdMap.containsKey(env) || envToJasyptPwdMap.get(env) == null) {
+                System.out.println(" WARN - For " + serviceName + " and env=" + env + " - no jasypt pwd found");
+                continue;
             }
+            String myKaarmaConfigPath = env + "/"
+                + serviceToMykaarmaConfigNameMap.get(serviceName)
+                + (isCanaryEnv(env) ? "-canary" : "")
+                + ".yml";
+            String jasyptPwd = envToJasyptPwdMap.get(env);
+            String[] newArgs = updateArgsFromYml(args, myKaarmaConfigPath, jasyptPwd);
+            final String location = MYKAARMA_CONFIG_REPO_PATH + "/" ; //System.getProperty("user.dir") + "/";
+            decryptFiles(location, newArgs);
+        }
     }
 
     private static void decryptApplicationYml(String[] args, String serviceName,
         Map<String, String> envToJasyptPwdMap) {
+        String applicationYmlPath = serviceToApplicationYmlRelativePathMap.get(serviceName);
+        loadAndDecryptYaml(args, applicationYmlPath, envToJasyptPwdMap);
     }
+
+    public static void loadAndDecryptYaml(String[] args, String ymlPath, Map<String, String> envToJasyptPwdMap) {
+        List<String> newArgs = new ArrayList<>();
+        Yaml yaml = new Yaml();
+        String inputYmlFilePath = GIT_REPO_PATH + "/" + ymlPath;
+
+        List<Map<String, Object>> yamlDocumentsForThisService = new ArrayList<>();
+
+        // Step 1: Read YAML file
+        try (InputStream inputStream = new FileInputStream(inputYmlFilePath)) {
+            Iterable<Object> docs = yaml.loadAll(inputStream);
+            for (Object doc : docs) {
+                if (doc instanceof Map) {
+                    yamlDocumentsForThisService.add((Map<String, Object>) doc);
+                }
+            }
+        } catch (IOException e) {
+            System.err.println("Error reading YAML file: " + e.getMessage());
+            return;
+        }
+
+        // Step 2: Process each YAML document
+        List<Map<String, Object>> finalYamlDocumentsForThisService = new ArrayList<>();
+        for (Map<String, Object> doc : yamlDocumentsForThisService) {
+            processYamlDocument(doc, envToJasyptPwdMap);
+            finalYamlDocumentsForThisService.add(doc);
+        }
+
+        // Step 3: Write updated YAML back to file
+        writeYamlToFile(inputYmlFilePath, yamlDocumentsForThisService);
+    }
+
+    private static void processYamlDocument(Map<String, Object> yamlData, Map<String, String> envToJasyptPwdMap) {
+        try {
+            // Step 1: Write the original YAML data to a temp file
+            String tmpFilePath = TMP_FOLDER_PATH + "/Uyaml_temp" + (System.currentTimeMillis()%17);
+            File tempFile = File.createTempFile(tmpFilePath, ".yml");
+            writeYamlToFile(tempFile.getAbsolutePath(), Collections.singletonList(yamlData));
+
+            // Step 2: Flatten values for "jasypt"
+            List<String> newArgs = new ArrayList<>();
+            Map<String, Object> flatYamlMap = new HashMap<>();
+            if (yamlData.containsKey("jasypt")) {
+                flattenYaml("jasypt", (Map<String, Object>) yamlData.get("jasypt"), flatYamlMap);
+            } else {
+                flatYamlMap = yamlData;
+            }
+
+            for (String[] argumentNames: VALID_OPTIONAL_ARGUMENTS) {
+                if (flatYamlMap.containsKey(argumentNames[0])) {
+                    newArgs.add(argumentNames[0] + "=" + flatYamlMap.get(argumentNames[0]));
+                }
+            }
+            String jasyptPwd = getJasyptPwdFromYaml(yamlData, envToJasyptPwdMap);
+            if (jasyptPwd == null) { return; }
+
+            newArgs.add(ArgumentNaming.ARG_INPUT_FILE + "=" + tempFile.getAbsolutePath()); //inputYmlFilePath
+            newArgs.add(ArgumentNaming.ARG_PASSWORD + "=" + jasyptPwd);
+            // Step 3: Call decryptFiles with the flattened "jasypt" values and temp file path
+            decryptFiles("", newArgs.toArray(new String[newArgs.size()]));
+
+            // Step 4: Read decrypted YAML from the temp file and update yamlData
+            Yaml yaml = new Yaml();
+            try (InputStream inputStream = new FileInputStream(tempFile.getAbsolutePath())) {
+                // Load all YAML documents
+                Map<String, Object> decryptedYaml = (Map<String, Object>) yaml.loadAll(inputStream).iterator().next();
+                if (decryptedYaml != null) {
+                    yamlData.putAll(decryptedYaml);
+                }
+            }
+        } catch (IOException e) {
+            System.err.println("Error processing YAML document: " + e.getMessage());
+        }
+    }
+
+    private static String getJasyptPwdFromYaml(Map<String, Object> yamlData, Map<String, String> envToJasyptPwdMap) {
+        if (!yamlData.containsKey("spring.profiles")
+            || ((String) yamlData.get("spring.profiles")) == null
+            || ENV.getEnumValue(((String) yamlData.get("spring.profiles"))) == null) {
+            System.out.println(" WARN - For  + serviceName +  and env= + env +  - no jasypt pwd found");
+            return null;
+        }
+
+        String profile = ((String) yamlData.get("spring.profiles"));
+        String jasyptPwd = envToJasyptPwdMap.get(profile);
+        return jasyptPwd;
+    }
+
+    private static void writeYamlToFile(String filePath, List<Map<String, Object>> yamlDocuments) {
+        DumperOptions options = new DumperOptions();
+        options.setDefaultFlowStyle(DumperOptions.FlowStyle.BLOCK);
+        options.setPrettyFlow(true);
+
+        Yaml yaml = new Yaml(options);
+
+        try (BufferedWriter writer = Files.newBufferedWriter(Paths.get(filePath))) {
+            for (Map<String, Object> doc : yamlDocuments) {
+                writer.write(yaml.dump(doc));
+                writer.write("---\n");  // Separate YAML documents
+            }
+        } catch (IOException e) {
+            System.err.println("Error writing YAML file: " + e.getMessage());
         }
     }
 
@@ -356,7 +484,7 @@ public final class JasyptPBEFileDecryptionCLI {
         return newArgs.toArray(new String[newArgs.size()]);
     }
 
-    public static void decryptFiles(String[] args) {
+    public static void decryptFiles(String location, String[] args) {
         boolean verbose = CLIUtils.getVerbosity(args);
         try {
 
@@ -377,8 +505,6 @@ public final class JasyptPBEFileDecryptionCLI {
                     VALID_REQUIRED_ARGUMENTS, VALID_OPTIONAL_ARGUMENTS);
 
             CLIUtils.showEnvironment(verbose);
-
-            final String location = MYKAARMA_CONFIG_REPO_PATH + "/" ; //System.getProperty("user.dir") + "/";
 
             CLIUtils.showArgumentDescription(argumentValues, verbose);
 
@@ -436,10 +562,19 @@ public final class JasyptPBEFileDecryptionCLI {
         config.setIvGeneratorClassName(argumentValues.getProperty(ArgumentNaming.ARG_IV_GENERATOR_CLASS_NAME));
         
         final FileEncryptorService fileEncryptorService = new FileEncryptorService();
-        
-        String outputFileAsString = fileEncryptorService.decrypt(
-        		inputFileAsString, config, encryptedPrefix, encryptedSuffix, decryptedPrefix, decryptedSuffix, verbose
-        		);
+
+        String outputFileAsString;
+        if (encrypt) {
+            outputFileAsString = fileEncryptorService.encrypt(
+                inputFileAsString, config, encryptedPrefix, encryptedSuffix, decryptedPrefix,
+                decryptedSuffix, verbose
+            );
+        } else {
+            outputFileAsString = fileEncryptorService.decrypt(
+                inputFileAsString, config, encryptedPrefix, encryptedSuffix, decryptedPrefix,
+                decryptedSuffix, verbose
+            );
+        }
         
         final String outputFileName = argumentValues.getProperty(ArgumentNaming.ARG_OUTPUT_FILE);
         String outputFilePath = null;
