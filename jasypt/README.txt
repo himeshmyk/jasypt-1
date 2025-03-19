@@ -11,4 +11,5 @@
  
      http://www.jasypt.org
 
-     
+
+Refer the readme in src/main/java/org/jasypt/intf/cli for details about running the JasyptPBEFileDecryptionCLI

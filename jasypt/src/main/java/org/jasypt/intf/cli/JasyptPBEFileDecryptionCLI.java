@@ -238,7 +238,7 @@ public final class JasyptPBEFileDecryptionCLI {
 //                        System.out.println("Found section: " + key + " -> " + data.get(key));
 //                    }
                     String serviceName = (String) ((Map<String, Object>) data.get("metadata")).get("name");
-                    List<Map<String, String>> env = (List<Map<String, String>>)
+                    List<Map<String, String>> envVars = (List<Map<String, String>>)
                         ((List<Map<String, Object>>)
                             ((Map<String, Object>)
                                 ((Map<String, Object>)
@@ -248,12 +248,12 @@ public final class JasyptPBEFileDecryptionCLI {
                                     .get("spec"))
                                 .get("containers"))
                             .get(0).get("env");
-                    if (env == null) {
+                    if (envVars == null) {
                         if (printUselessLogs) System.out.println(" WARN - For " + serviceName + " - no env vars found");
                         continue;
                     }
 
-                    Optional<Map<String, String>> jasyptPwdMap = env.stream().filter(envProp -> "jasypt.encryptor.password".equalsIgnoreCase(envProp.get("name"))).findFirst();
+                    Optional<Map<String, String>> jasyptPwdMap = envVars.stream().filter(envProp -> "jasypt.encryptor.password".equalsIgnoreCase(envProp.get("name"))).findFirst();
                     if (!jasyptPwdMap.isPresent()) {
                         System.out.println(" WARN - For " + serviceName + " - env vars doesn't contain jasypt pwd");
                         continue;
@@ -267,6 +267,67 @@ public final class JasyptPBEFileDecryptionCLI {
             e.printStackTrace();
         }
         return serviceToJasyptPwdMap;
+    }
+
+    public static void updateJasyptPasswordInDeploymentFile(String env, Map<String, String> serviceToJasyptNewPwdMap) {
+        String deploymentFilePath = getDeploymentFilePath(ENV.getEnumValue(env));
+        Yaml yaml = new Yaml();
+
+        // Load YAML file from resources
+        try (InputStream inputStream = new FileInputStream(deploymentFilePath)) {
+            if (inputStream == null) {
+                throw new RuntimeException("YAML file not found!");
+            }
+
+            // Load all YAML documents
+            Iterable<Object> documents = yaml.loadAll(inputStream);
+
+            // Iterate over documents and process them
+            List<Map<String, Object>> deploymentYmlsForThisFilePath = new ArrayList<>();
+            for (Object document : documents) {
+                if (document instanceof Map) {
+                    Map<String, Object> data = (Map<String, Object>) document;
+                    deploymentYmlsForThisFilePath.add(data);
+//                    for (String key : data.keySet()) {
+//                        System.out.println("Found section: " + key + " -> " + data.get(key));
+//                    }
+                    String serviceName = (String) ((Map<String, Object>) data.get("metadata")).get("name");
+                    String baseServiceName = isCanaryEnv(env) ? serviceName.substring(0, serviceName.indexOf("-canary")) : serviceName;
+                    if (!serviceToJasyptNewPwdMap.containsKey(baseServiceName) || serviceToJasyptNewPwdMap.get(baseServiceName) == null) {
+                        continue;
+                    }
+                    String newJasyptPwd = serviceToJasyptNewPwdMap.get(baseServiceName);
+
+                    List<Map<String, String>> envVars = (List<Map<String, String>>)
+                        ((List<Map<String, Object>>)
+                            ((Map<String, Object>)
+                                ((Map<String, Object>)
+                                    ((Map<String, Object>)
+                                        (Map<String, Object>) data.get("spec"))
+                                        .get("template"))
+                                    .get("spec"))
+                                .get("containers"))
+                            .get(0).get("env");
+                    if (envVars == null) {
+                        if (printUselessLogs) System.out.println(" WARN - For " + serviceName + " - no env vars found");
+                        continue;
+                    }
+
+                    Optional<Map<String, String>> jasyptPwdMap = envVars.stream().filter(envProp -> "jasypt.encryptor.password".equalsIgnoreCase(envProp.get("name"))).findFirst();
+                    if (!jasyptPwdMap.isPresent()) {
+                        System.out.println(" WARN - For " + serviceName + " - env vars doesn't contain jasypt pwd");
+                        continue;
+                    }
+                    jasyptPwdMap.get().put("value", newJasyptPwd);
+//                    System.out.print(data);
+                }
+            }
+
+            writeYamlToFile(deploymentFilePath, deploymentYmlsForThisFilePath);
+
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
     }
 
     static String namespace = "transportation";
@@ -299,6 +360,22 @@ public final class JasyptPBEFileDecryptionCLI {
 //        decryptFiles(args);
 
 
+        Map<String, Map<String, String>> fetchedEnvToServiceToJasyptPwdMap = new HashMap<>();
+        for (String serviceName: serviceToEnvToJasyptPwdMap.keySet()) {
+            Map<String, String> envToJasyptPwdMap = serviceToEnvToJasyptPwdMap.get(serviceName);
+            if (envToJasyptPwdMap != null) {
+                for (String env: envToJasyptPwdMap.keySet()) {
+                    fetchedEnvToServiceToJasyptPwdMap.computeIfAbsent(env,
+                        k -> new HashMap<>());
+                    fetchedEnvToServiceToJasyptPwdMap.get(env).put(serviceName, envToJasyptPwdMap.get(env));
+                }
+            }
+        }
+
+        System.out.println("--------fetchedEnvToServiceToJasyptPwdMap---------");
+        System.out.println(fetchedEnvToServiceToJasyptPwdMap);
+
+
         for (String serviceName: serviceToEnvToJasyptPwdMap.keySet()) {
             Map<String, String> envToJasyptPwdMap = serviceToEnvToJasyptPwdMap.get(serviceName);
 
@@ -314,7 +391,21 @@ public final class JasyptPBEFileDecryptionCLI {
         System.out.println("--------envToServiceToJasyptNewPwdMap---------");
         System.out.println(envToServiceToJasyptNewPwdMap);
 
+        updatePasswordsInDeploymentFiles();
 
+
+    }
+
+    public static void updatePasswordsInDeploymentFiles() {
+        for (String env: envToServiceToJasyptNewPwdMap.keySet()) {
+            if (!envToServiceToJasyptNewPwdMap.containsKey(env)
+                || envToServiceToJasyptNewPwdMap.get(env) == null
+                || envToServiceToJasyptNewPwdMap.get(env).isEmpty()) {
+                continue;
+            }
+            Map<String, String> serviceToJasyptNewPwdMap = envToServiceToJasyptNewPwdMap.get(env);
+            updateJasyptPasswordInDeploymentFile(env, serviceToJasyptNewPwdMap);
+        }
     }
 
     public static String generateRandomPassword(int length) {
@@ -325,9 +416,18 @@ public final class JasyptPBEFileDecryptionCLI {
         // SecureRandom is used for cryptographic randomness
         new SecureRandom().nextBytes(randomBytes);
 
-        // Encode to Base64 and take the required substring
-        String base64String = Base64.getEncoder().encodeToString(randomBytes);
-        return base64String.substring(0, length);
+//        // Encode to Base64 and take the required substring
+//        String base64String = Base64.getEncoder().encodeToString(randomBytes);
+//        return base64String.substring(0, length);
+
+        // Convert bytes to hex string
+        StringBuilder hexString = new StringBuilder();
+        for (byte b : randomBytes) {
+            hexString.append(String.format("%02x", b)); // Format as two-digit hex
+        }
+
+        // Trim to requested length
+        return hexString.substring(0, length);
     }
 
     private static void decryptMyKaarmaConfig(String[] args, String serviceName,
