@@ -269,7 +269,45 @@ public final class JasyptPBEFileDecryptionCLI {
         return serviceToJasyptPwdMap;
     }
 
+    public static void updatePwdInFile(String env, Map<String, String> serviceToJasyptNewPwdMap) {
+        String deploymentFilePath = getDeploymentFilePath(ENV.getEnumValue(env));
+
+        // Create a hashmap with keys and replacement values
+        Map<String, String> replacements = getReplacementMap(env, serviceToJasyptNewPwdMap);
+
+        try {
+            // Read the file content
+            String content = new String(Files.readAllBytes(Paths.get(deploymentFilePath)));
+
+            // Replace occurrences of each key with its value
+            for (Map.Entry<String, String> entry : replacements.entrySet()) {
+                content = content.replace(entry.getKey(), entry.getValue());
+            }
+
+            // Write the modified content back to the file
+            Files.write(Paths.get(deploymentFilePath), content.getBytes());
+
+            System.out.println("File updated successfully.");
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
+
+    public static Map<String, String> getReplacementMap(String env, Map<String, String> serviceToJasyptNewPwdMap) {
+        Map<String, String> replacementMap = new HashMap<>();
+        for (String serviceName: serviceToJasyptNewPwdMap.keySet()) {
+            replacementMap.put(serviceToEnvToJasyptPwdMap.get(serviceName).get(env), serviceToJasyptNewPwdMap.get(serviceName));
+        }
+        return replacementMap;
+    }
+
     public static void updateJasyptPasswordInDeploymentFile(String env, Map<String, String> serviceToJasyptNewPwdMap) {
+        if (!updateDeploymentFilesAsYaml) {
+            updatePwdInFile(env, serviceToJasyptNewPwdMap);
+            return;
+        }
+
+
         String deploymentFilePath = getDeploymentFilePath(ENV.getEnumValue(env));
         Yaml yaml = new Yaml();
 
@@ -331,10 +369,12 @@ public final class JasyptPBEFileDecryptionCLI {
     }
 
     static String namespace = "transportation";
+    static String specificServiceName = "transportation-events-consumer";
     static boolean printUselessLogs = false;
-    static boolean encrypt = true;
+    static boolean encrypt = false;
     static boolean shouldGenerateNewPassword = true;
     static int pwdLength = 20;
+    static boolean updateDeploymentFilesAsYaml = false;
 
 
     /**
@@ -377,6 +417,9 @@ public final class JasyptPBEFileDecryptionCLI {
 
 
         for (String serviceName: serviceToEnvToJasyptPwdMap.keySet()) {
+
+            if (specificServiceName != null && !specificServiceName.equals("") && !specificServiceName.contentEquals(serviceName)) { continue; }
+
             Map<String, String> envToJasyptPwdMap = serviceToEnvToJasyptPwdMap.get(serviceName);
 
             if (serviceToMykaarmaConfigNameMap.containsKey(serviceName) && serviceToMykaarmaConfigNameMap.get(serviceName) != null) {
