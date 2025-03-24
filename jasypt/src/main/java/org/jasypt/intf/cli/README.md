@@ -55,13 +55,17 @@ Another useful ability this utility provides during encryption, is the ability t
 ```
 static String namespace = "transportation";
 static String specificServiceName = "";
+static String specificEnv = "";
 static boolean printUselessLogs = false;
 static boolean encrypt = false;
 static boolean shouldGenerateNewPassword = true;
 static int pwdLength = 20;
+static String customMykaarmaConfigBasePath = "";
 ```
 
 `namespace` - the namespace for which to run  
-`specificServiceName` - a specific service in the namespace for which to run. If null/blank, runs for all services in the namespace  
+`specificServiceName` - a specific service in the namespace for which to run. If null/blank, runs for all services in the namespace
+`specificEnv` - one of "prod","prod-canary","qa-aws","qa-aws-canary","devvm" - if you want to run for a specific env. Blank means run for all env
 `encrypt` - if true, runs encryption, else runs decryption  
-`shouldGenerateNewPassword` - if true and if `encrypt` is also true, generates a new random password of length `pwdLength` for each environment of each service for which this is run, encrypts keys according to these new passwords and updates the passwords in deployment.yml in vishwakarma and internal-systems (QA+Prod). **IMPORTANT NOTE: This only works if the passwords are different for each service in the same deployment.yml file (passwords can be common in different deployment.yml files). If this is your use-case, either set your passwords manually from the map printed in output, or set `updateDeploymentFilesAsYaml = true` before running encryption (please note - this seems to make some whitespace changes as well)** 
+`shouldGenerateNewPassword` - if true and if `encrypt` is also true, generates a new random password of length `pwdLength` for each environment of each service for which this is run, encrypts keys according to these new passwords and updates the passwords in deployment.yml in vishwakarma and internal-systems (QA+Prod). **IMPORTANT NOTE: This only works if the passwords are different for each service in the same deployment.yml file (passwords can be common in different deployment.yml files). If this is your use-case, either set your passwords manually from the map printed in output, or set `updateDeploymentFilesAsYaml = true` before running encryption (please note - this seems to make some whitespace changes as well)**
+`customMykaarmaConfigBasePath` - only required for custom handling for authentication-utils service deployment in the API namespace (custom base path in mykaarma-config repo)
