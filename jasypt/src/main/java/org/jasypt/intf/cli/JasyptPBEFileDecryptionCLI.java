@@ -28,7 +28,6 @@ import java.nio.file.Files;
 import java.nio.file.Paths;
 import java.security.SecureRandom;
 import java.util.ArrayList;
-import java.util.Base64;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -36,6 +35,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Properties;
 
+import java.util.Set;
 import org.jasypt.commons.CommonUtils;
 import org.jasypt.encryption.pbe.config.SimpleStringPBEConfig;
 import org.jasypt.exceptions.EncryptionOperationNotPossibleException;
@@ -119,12 +119,60 @@ public final class JasyptPBEFileDecryptionCLI {
             }
         };
 
+    //ARGUMENTS:
+
+//    static String namespace = "api";  //custom handling for auth utils deployment in api namespace
+    static String namespace = "archext";
+    static String specificServiceName = "authentication-utils--server";
+    static String specificEnv = "";
+//    static String specificEnv = "qa-aws";
+    static boolean printUselessLogs = false;
+    static boolean encrypt = false;
+    static boolean shouldGenerateNewPassword = false;
+    static int pwdLength = 20;
+    static boolean updateDeploymentFilesAsYaml = false;
+    static String customMykaarmaConfigBasePath = "";
+//    static String customMykaarmaConfigBasePath = "api-qa-aws";
+
+
+    //1. all services transportation
+    //2. reporting->mk-planetscale-connector
+    //3. archext->mkurlshortener--server and archext->authentication-utils--server
+
+
+
+    //MODIFY ACCORDING TO YOUR SYSTEM/REPOS/NAMESPACE
     public static String GIT_REPO_PATH = "/Users/himeshbhatia/git";
     public static String TMP_FOLDER_PATH = "/Users/himeshbhatia/Desktop/tmp";
     public static String MYKAARMA_CONFIG_REPO_PATH = GIT_REPO_PATH + "/mykaarma-config";
 
     public static String INTERNAL_SYSTEMS_REPO_PATH = GIT_REPO_PATH + "/internal-systems";
     public static String VISHWAKARMA_REPO_PATH = GIT_REPO_PATH + "/vishwakarma";
+
+    public static Map<String, String> serviceToMykaarmaConfigNameMap = new HashMap<String, String>() {{
+        put("authentication-utils--server", "authentication-utils-server");
+        put("mkurlshortener--server", "mkUrlShortener-server");
+        put("kpickupdelivery-api-v2", "kpickupdelivery-api");
+        put("transportation-events-consumer", "transportation-events-consumer");
+        put("customer-actions-server", "customer-actions");
+        put("kridesharing-api", "kridesharing-api");
+        put("mobile-service-server", "mobile-service-api");
+        put("transportation-route-finder", "transportation-route-finder");
+        put("mobile-service-aggregator-server", "mobile-service-aggregator");
+        put("mobile-check-in-server", "mobile-check-in");
+        put("pickup-delivery-aggregator-server", "pickup-delivery-aggregator");
+        put("kpickupdelivery-processor", "kpickupdelivery-processor");
+        put("mk-planetscale-connector", "mk-planetscale-connector");
+    }};
+
+    public static Map<String, String> serviceToApplicationYmlRelativePathMap = new HashMap<String, String>() {{
+        put("email-integration", "email-integration/src/main/resources/application.yml");
+        put("vault-api", "vault/server/src/main/resources/application.yml");
+        put("mkhtmltopdf-api", "mkhtmltopdf/server/src/main/resources/application.yml");
+    }};
+
+    public static Map<String, Map<String, String>> serviceToEnvToJasyptPwdMap = new HashMap<>();
+    public static Map<String, Map<String, String>> envToServiceToJasyptNewPwdMap = new HashMap<>();
 
     private enum ENV {
         PROD("prod"),
@@ -161,28 +209,6 @@ public final class JasyptPBEFileDecryptionCLI {
         }
     }
 
-    public static Map<String, String> serviceToMykaarmaConfigNameMap = new HashMap<String, String>() {{
-        put("kpickupdelivery-api-v2", "kpickupdelivery-api");
-        put("transportation-events-consumer", "transportation-events-consumer");
-        put("customer-actions-server", "customer-actions");
-        put("kridesharing-api", "kridesharing-api");
-        put("mobile-service-server", "mobile-service-api");
-        put("transportation-route-finder", "transportation-route-finder");
-        put("mobile-service-aggregator-server", "mobile-service-aggregator");
-        put("mobile-check-in-server", "mobile-check-in");
-        put("pickup-delivery-aggregator-server", "pickup-delivery-aggregator");
-        put("kpickupdelivery-processor", "kpickupdelivery-processor");
-    }};
-
-    public static Map<String, String> serviceToApplicationYmlRelativePathMap = new HashMap<String, String>() {{
-        put("email-integration", "email-integration/src/main/resources/application.yml");
-        put("vault-api", "vault/server/src/main/resources/application.yml");
-        put("mkhtmltopdf-api", "mkhtmltopdf/server/src/main/resources/application.yml");
-    }};
-
-    public static Map<String, Map<String, String>> serviceToEnvToJasyptPwdMap = new HashMap<>();
-    public static Map<String, Map<String, String>> envToServiceToJasyptNewPwdMap = new HashMap<>();
-
     public static String getDeploymentFilePath(ENV env) {
         switch (env) {
             case PROD:
@@ -200,13 +226,26 @@ public final class JasyptPBEFileDecryptionCLI {
     }
 
     public static void fetchEnvSpecificJasyptPasswords(String namespace) {
-        Map<String, String> serviceToJasyptPwdMapProd = getJasyptPasswordsForDeploymentFile(getDeploymentFilePath(ENV.PROD));
-        Map<String, String> serviceToJasyptPwdMapProdCanary = getJasyptPasswordsForDeploymentFile(getDeploymentFilePath(ENV.PROD_CANARY));
-        Map<String, String> serviceToJasyptPwdMapQa = getJasyptPasswordsForDeploymentFile(getDeploymentFilePath(ENV.QA_AWS));
-        Map<String, String> serviceToJasyptPwdMapQaCanary = getJasyptPasswordsForDeploymentFile(getDeploymentFilePath(ENV.QA_AWS_CANARY));
-        Map<String, String> serviceToJasyptPwdMapDev = getJasyptPasswordsForDeploymentFile(getDeploymentFilePath(ENV.DEVVM));
+        Set<String> serviceNames = null;
+        Map<String, String> serviceToJasyptPwdMapProd = !shouldProcessForThisEnv(ENV.PROD.getValue()) ? new HashMap<>() :
+            getJasyptPasswordsForDeploymentFile(getDeploymentFilePath(ENV.PROD));
+        if (isSpecificEnvMatching(ENV.PROD)) { serviceNames = serviceToJasyptPwdMapProd.keySet(); }
+        Map<String, String> serviceToJasyptPwdMapProdCanary = !shouldProcessForThisEnv(ENV.PROD_CANARY.getValue()) ? new HashMap<>() :
+            getJasyptPasswordsForDeploymentFile(getDeploymentFilePath(ENV.PROD_CANARY));
+        if (isSpecificEnvMatching(ENV.PROD_CANARY)) { serviceNames = serviceToJasyptPwdMapProdCanary.keySet(); }
+        Map<String, String> serviceToJasyptPwdMapQa = !shouldProcessForThisEnv(ENV.QA_AWS.getValue()) ? new HashMap<>() :
+            getJasyptPasswordsForDeploymentFile(getDeploymentFilePath(ENV.QA_AWS));
+        if (isSpecificEnvMatching(ENV.QA_AWS)) { serviceNames = serviceToJasyptPwdMapQa.keySet(); }
+        Map<String, String> serviceToJasyptPwdMapQaCanary = !shouldProcessForThisEnv(ENV.QA_AWS_CANARY.getValue()) ? new HashMap<>() :
+            getJasyptPasswordsForDeploymentFile(getDeploymentFilePath(ENV.QA_AWS_CANARY));
+        if (isSpecificEnvMatching(ENV.QA_AWS_CANARY)) { serviceNames = serviceToJasyptPwdMapQaCanary.keySet(); }
+        Map<String, String> serviceToJasyptPwdMapDev = !shouldProcessForThisEnv(ENV.DEVVM.getValue()) ? new HashMap<>() :
+            getJasyptPasswordsForDeploymentFile(getDeploymentFilePath(ENV.DEVVM));
+        if (isSpecificEnvMatching(ENV.DEVVM)) { serviceNames = serviceToJasyptPwdMapDev.keySet(); }
 
-        for (String serviceName: serviceToJasyptPwdMapProd.keySet()) {
+        if (!isSpecificEnvPresent()) { serviceNames = serviceToJasyptPwdMapProd.keySet(); }
+
+        for (String serviceName: serviceNames) {
             Map<String, String> envToJasyptPwdMap = new HashMap<>();
             envToJasyptPwdMap.put(ENV.PROD.getValue(), serviceToJasyptPwdMapProd.get(serviceName));
             envToJasyptPwdMap.put(ENV.PROD_CANARY.getValue(), serviceToJasyptPwdMapProdCanary.get(serviceName + "-canary"));
@@ -368,14 +407,6 @@ public final class JasyptPBEFileDecryptionCLI {
         }
     }
 
-    static String namespace = "transportation";
-    static String specificServiceName = "transportation-events-consumer";
-    static boolean printUselessLogs = false;
-    static boolean encrypt = false;
-    static boolean shouldGenerateNewPassword = true;
-    static int pwdLength = 20;
-    static boolean updateDeploymentFilesAsYaml = false;
-
 
     /**
      * <p>
@@ -441,6 +472,9 @@ public final class JasyptPBEFileDecryptionCLI {
 
     public static void updatePasswordsInDeploymentFiles() {
         for (String env: envToServiceToJasyptNewPwdMap.keySet()) {
+            if (!shouldProcessForThisEnv(env)) {
+                continue;
+            }
             if (!envToServiceToJasyptNewPwdMap.containsKey(env)
                 || envToServiceToJasyptNewPwdMap.get(env) == null
                 || envToServiceToJasyptNewPwdMap.get(env).isEmpty()) {
@@ -476,11 +510,14 @@ public final class JasyptPBEFileDecryptionCLI {
     private static void decryptMyKaarmaConfig(String[] args, String serviceName,
         Map<String, String> envToJasyptPwdMap) {
         for (String env: envToJasyptPwdMap.keySet()) {
+            if (!shouldProcessForThisEnv(env)) {
+                continue;
+            }
             if (!envToJasyptPwdMap.containsKey(env) || envToJasyptPwdMap.get(env) == null) {
                 System.out.println(" WARN - For " + serviceName + " and env=" + env + " - no jasypt pwd found");
                 continue;
             }
-            String myKaarmaConfigPath = env + "/"
+            String myKaarmaConfigPath = (isEmpty(customMykaarmaConfigBasePath) ? env : customMykaarmaConfigBasePath) + "/"
                 + serviceToMykaarmaConfigNameMap.get(serviceName)
                 + (isCanaryEnv(env) ? "-canary" : "")
                 + ".yml";
@@ -489,6 +526,10 @@ public final class JasyptPBEFileDecryptionCLI {
             final String location = MYKAARMA_CONFIG_REPO_PATH + "/" ; //System.getProperty("user.dir") + "/";
             decryptFiles(location, newArgs);
         }
+    }
+
+    public static boolean isEmpty(String s) {
+        return s == null || s.isEmpty();
     }
 
     private static void decryptApplicationYml(String[] args, String serviceName,
@@ -587,8 +628,24 @@ public final class JasyptPBEFileDecryptionCLI {
         }
 
         String profile = ((String) yamlData.get("spring.profiles"));
+        if (!shouldProcessForThisEnv(profile)) {
+            return null;
+        }
         String jasyptPwd = envToJasyptPwdMap.get(profile);
         return jasyptPwd;
+    }
+
+    public static boolean shouldProcessForThisEnv(String env) {
+        if (!isSpecificEnvPresent()) { return true; }
+        return env.contentEquals(specificEnv);
+    }
+
+    public static boolean isSpecificEnvPresent() {
+        return !isEmpty(specificEnv);
+    }
+
+    public static boolean isSpecificEnvMatching(ENV env) {
+        return (env.getValue().contentEquals(specificEnv));
     }
 
     private static void writeYamlToFile(String filePath, List<Map<String, Object>> yamlDocuments) {
