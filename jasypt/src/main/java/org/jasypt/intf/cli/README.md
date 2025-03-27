@@ -3,7 +3,12 @@ Readme for JasyptPBEFileDecryptionCLI
 Run the JasyptPBEFileDecryptionCLI main method to achieve the results shared below.
 
 -> Works as a utility for 1-click encryption/decryption of jasypt secrets for all environments of a service/services of a namespace.
-Pre-requisites:
+
+**Limitations:**
+1. In case of application.yml, jasypt encryption configs (like `jasypt.encryptor.algorithm`, `jasypt.encryptor.salt-generator-classname`, etc) are not picked from the common profile at the top of the file. One needs to add the configs to each profile separately.
+2. In case of application.yml, Comments/whitespaces are getting removed from the application.yml after encryption/decryption.
+
+**Pre-requisites:**
 1. This utility will **NOT** work if:  
    (a) Services has hardcoded jasypt properties in code rather than in application.yml/mykaarma-config  
    (b) Service doesn't declare jasypt properties at all (using defaults of jasypt plugin)  
@@ -33,6 +38,12 @@ Pre-requisites:
 **internal-systems** (for fetching jasypt pwd QA and prod)  
 **vishwakarma** (for fetching jasypt pwd devvm)  
 **mykaarma-config** (if the services use this)/repo(s) of the service(s) (if the services have local appllcation.yml resource) - to fetch the jasypt encryptor propertoes
+
+
+**Pre-run steps:**
+1. Update TMP_FOLDER_PATH and GIT_REPO_PATH to point to your local system (GIT_REPO_PATH directory should have your required repos as stated in pre-requisites).
+2. Add entries for your service in `serviceToMykaarmaConfigNameMap` or `serviceToApplicationYmlRelativePathMap` whichever applicable - key will be the name of service in kubernetes deployment file, value will be the name of service file in mykaarma-config/relative path of application.yml file to git folder (whichever applicable)
+
 
 
 The utility will perform the following:
