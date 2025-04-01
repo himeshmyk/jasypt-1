@@ -22,6 +22,7 @@ package org.jasypt.intf.cli;
 import java.io.BufferedWriter;
 import java.io.File;
 import java.io.FileInputStream;
+import java.io.FileWriter;
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Files;
@@ -122,8 +123,8 @@ public final class JasyptPBEFileDecryptionCLI {
     //ARGUMENTS:
 
 //    static String namespace = "api";  //custom handling for auth utils deployment in api namespace
-    static String namespace = "archext";
-    static String specificServiceName = "authentication-utils--server";
+    static String namespace = "dms";
+    static String specificServiceName = "korder-api-v2";
     static String specificEnv = "";
 //    static String specificEnv = "qa-aws";
     static boolean printUselessLogs = false;
@@ -172,6 +173,7 @@ public final class JasyptPBEFileDecryptionCLI {
         put("email-integration", "email-integration/src/main/resources/application.yml");
         put("vault-api", "vault/server/src/main/resources/application.yml");
         put("mkhtmltopdf-api", "mkhtmltopdf/server/src/main/resources/application.yml");
+        put("korder-api-v2", "korder-api/server/src/main/resources/application.yml");
     }};
 
     public static Map<String, Map<String, String>> serviceToEnvToJasyptPwdMap = new HashMap<>();
@@ -542,51 +544,57 @@ public final class JasyptPBEFileDecryptionCLI {
     }
 
     public static void loadAndDecryptYaml(String[] args, String serviceName, String ymlPath, Map<String, String> envToJasyptPwdMap) {
-        List<String> newArgs = new ArrayList<>();
-        Yaml yaml = new Yaml();
         String inputYmlFilePath = GIT_REPO_PATH + "/" + ymlPath;
+        try {
+            // Step 1: Read the entire file content as plain text
+            String content = new String(Files.readAllBytes(Paths.get(inputYmlFilePath)));
 
-        List<Map<String, Object>> yamlDocumentsForThisService = new ArrayList<>();
+            // Step 2: Split content into sections using "---" as the delimiter (handling multi-line separator)
+            String[] sections = content.split("(?m)^---$");
 
-        // Step 1: Read YAML file
-        try (InputStream inputStream = new FileInputStream(inputYmlFilePath)) {
-            Iterable<Object> docs = yaml.loadAll(inputStream);
-            for (Object doc : docs) {
-                if (doc instanceof Map) {
-                    yamlDocumentsForThisService.add((Map<String, Object>) doc);
+            // Step 3: Initialize a StringBuilder to collect processed sections
+            StringBuilder processedContent = new StringBuilder();
+
+            for (int i = 0; i < sections.length; i++) {
+                String section = sections[i];
+                section = section.trim();
+                if (section.isEmpty()) continue;
+
+                // Step 4: Process each section
+                String processedSection = processYamlSection(section, serviceName, envToJasyptPwdMap);
+                processedContent.append(processedSection);
+                if (i == sections.length - 1) {
+                    processedContent.append("\n");
+                } else {
+                    processedContent.append("\n---\n");
                 }
             }
+
+            // Step 5: Write the processed content back to the original file
+            Files.write(Paths.get(inputYmlFilePath), processedContent.toString().getBytes());
+            System.out.println("Processed YAML file successfully.");
+
         } catch (IOException e) {
-            System.err.println("Error reading YAML file: " + e.getMessage());
-            return;
+            System.err.println("Error processing YAML file: " + e.getMessage());
         }
-
-        // Step 2: Process each YAML document
-        List<Map<String, Object>> finalYamlDocumentsForThisService = new ArrayList<>();
-        for (Map<String, Object> doc : yamlDocumentsForThisService) {
-            processYamlDocument(serviceName, doc, envToJasyptPwdMap);
-
-
-
-
-            finalYamlDocumentsForThisService.add(doc);
-
-
-
-
-
-        }
-
-        // Step 3: Write updated YAML back to file
-        writeYamlToFile(inputYmlFilePath, yamlDocumentsForThisService);
     }
 
-    private static void processYamlDocument(String serviceName, Map<String, Object> yamlData, Map<String, String> envToJasyptPwdMap) {
+    private static String processYamlSection(String section, String serviceName, Map<String, String> envToJasyptPwdMap) {
         try {
-            // Step 1: Write the original YAML data to a temp file
-            String tmpFilePath = TMP_FOLDER_PATH + "/Uyaml_temp" + (System.currentTimeMillis()%17);
-            File tempFile = File.createTempFile(tmpFilePath, ".yml");
-            writeYamlToFile(tempFile.getAbsolutePath(), Collections.singletonList(yamlData));
+            // Step 1: Create a temporary file
+            File tempFile = File.createTempFile("yaml_section_" + System.currentTimeMillis(), ".yml");
+
+            // Initialize SnakeYAML parser
+            Yaml yaml = new Yaml();
+
+            // Parse the YAML string into a Map
+            Map<String, Object> yamlData = yaml.load(section);
+
+            String profile = ((String) yamlData.get("spring.profiles"));
+            if (isEmpty(profile) || !shouldProcessForThisEnv(profile)) { return section; }
+
+            String jasyptPwd = getJasyptPwdFromYaml(yamlData, envToJasyptPwdMap);
+            if (jasyptPwd == null) { return section; }
 
             // Step 2: Flatten values for "jasypt"
             List<String> newArgs = new ArrayList<>();
@@ -602,32 +610,34 @@ public final class JasyptPBEFileDecryptionCLI {
                     newArgs.add(argumentNames[0] + "=" + flatYamlMap.get(argumentNames[0]));
                 }
             }
-            String jasyptPwd = getJasyptPwdFromYaml(yamlData, envToJasyptPwdMap);
-            if (jasyptPwd == null) { return; }
 
-            newArgs.add(ArgumentNaming.ARG_INPUT_FILE + "=" + tempFile.getAbsolutePath()); //inputYmlFilePath
+            // Step 2: Write the current section to the temp file
+            try (BufferedWriter writer = new BufferedWriter(new FileWriter(tempFile))) {
+                writer.write(section);
+            }
+
+            // Step 3: Call the decryptFile method with the temp file path
+            List<String> deepCopy = new ArrayList<>(newArgs);
+            deepCopy.add(ArgumentNaming.ARG_INPUT_FILE + "=" + tempFile.getAbsolutePath()); //inputYmlFilePath
             if (encrypt && shouldGenerateNewPassword) {
                 final String newJasyptPwd = generateRandomPassword(pwdLength);
-                newArgs.add(ArgumentNaming.ARG_PASSWORD + "=" + newJasyptPwd);
-                String profile = ((String) yamlData.get("spring.profiles"));
+                deepCopy.add(ArgumentNaming.ARG_PASSWORD + "=" + newJasyptPwd);
                 updateNewJasyptPwdInMap(profile, serviceName, newJasyptPwd);
             } else {
-                newArgs.add(ArgumentNaming.ARG_PASSWORD + "=" + jasyptPwd);
+                deepCopy.add(ArgumentNaming.ARG_PASSWORD + "=" + jasyptPwd);
             }
-            // Step 3: Call decryptFiles with the flattened "jasypt" values and temp file path
-            decryptFiles("", newArgs.toArray(new String[newArgs.size()]));
+            decryptFiles("", deepCopy.toArray(new String[deepCopy.size()]));
 
-            // Step 4: Read decrypted YAML from the temp file and update yamlData
-            Yaml yaml = new Yaml();
-            try (InputStream inputStream = new FileInputStream(tempFile.getAbsolutePath())) {
-                // Load all YAML documents
-                Map<String, Object> decryptedYaml = (Map<String, Object>) yaml.loadAll(inputStream).iterator().next();
-                if (decryptedYaml != null) {
-                    yamlData.putAll(decryptedYaml);
-                }
-            }
+            // Step 4: Read the processed content from the temp file
+            String processedSection = new String(Files.readAllBytes(tempFile.toPath()));
+
+            // Step 5: Clean up the temp file
+            tempFile.delete();
+
+            return processedSection.trim();
         } catch (IOException e) {
-            System.err.println("Error processing YAML document: " + e.getMessage());
+            System.err.println("Error processing YAML section: " + e.getMessage());
+            return section;  // Return the original section in case of error
         }
     }
 
