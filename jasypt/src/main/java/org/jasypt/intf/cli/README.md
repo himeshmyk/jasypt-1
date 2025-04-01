@@ -6,6 +6,8 @@ THIS UTILITY DOES NOT INTERACT WITH GIT. IT NEEDS EVERYTHING CLONED ON YOUR LOCA
 1. Clone this git repo on your local. Open in an IDE.
 2. Open the [JasyptPBEFileDecryptionCLI](./JasyptPBEFileDecryptionCLI.java) file.
 3. Run the JasyptPBEFileDecryptionCLI main method with the configurations shared in screenshot, to achieve the results shared below.
+<img width="1536" alt="Screenshot 2025-04-02 at 12 36 09 AM" src="https://github.com/user-attachments/assets/2ed8bc7b-4ad8-4eb7-9229-203243f45d24" />
+
 
 -> Works as a utility for 1-click encryption/decryption of jasypt secrets for all environments of a service/services of a namespace.
 
@@ -41,7 +43,7 @@ THIS UTILITY DOES NOT INTERACT WITH GIT. IT NEEDS EVERYTHING CLONED ON YOUR LOCA
 2. Needs the **_latest code of the following repos to be cloned on local_**:  
 **internal-systems** (for fetching jasypt pwd QA and prod)  
 **vishwakarma** (for fetching jasypt pwd devvm)  
-**mykaarma-config** (if the services use this)/**repo(s) of the service(s)** (if the services have local appllcation.yml resource) - to fetch the jasypt encryptor propertoes
+**mykaarma-config** (if the services use this)/**repo(s) of the service(s)** (if the services have local appllcation.yml resource) - to fetch the jasypt encryptor properties
 
 
 **Pre-run steps:**
@@ -80,7 +82,7 @@ static String customMykaarmaConfigBasePath = "";
 
 `namespace` - the namespace for which to run  
 `specificServiceName` - a specific service in the namespace for which to run. If null/blank, runs for all services in the namespace
-`specificEnv` - one of "prod","prod-canary","qa-aws","qa-aws-canary","devvm" - if you want to run for a specific env. Blank means run for all env
+`specificEnv` - one of "prod","prod-canary","qa-aws","qa-aws-canary","devvm" - if you want to run for a specific env. Blank means run for all env  
 `encrypt` - if true, runs encryption, else runs decryption  
-`shouldGenerateNewPassword` - if true and if `encrypt` is also true, generates a new random password of length `pwdLength` for each environment of each service for which this is run, encrypts keys according to these new passwords and updates the passwords in deployment.yml in vishwakarma and internal-systems (QA+Prod). **IMPORTANT NOTE: This only works if the passwords are different for each service in the same deployment.yml file (passwords can be common in different deployment.yml files). If this is your use-case, either set your passwords manually from the map printed in output, or set `updateDeploymentFilesAsYaml = true` before running encryption (please note - this seems to make some whitespace changes as well)**
+`shouldGenerateNewPassword` - if true and if `encrypt` is also true, generates a new random password of length `pwdLength` for each environment of each service for which this is run, encrypts keys according to these new passwords and updates the passwords in deployment.yml in vishwakarma and internal-systems (QA+Prod). **IMPORTANT NOTE: This only works if the passwords are different for each service in the same deployment.yml file (passwords can be common in different deployment.yml files). If this is your use-case, either set your passwords manually from the map printed in output, or set `updateDeploymentFilesAsYaml = true` before running encryption (please note - this seems to make some whitespace changes as well)**  
 `customMykaarmaConfigBasePath` - only required for custom handling for authentication-utils service deployment in the API namespace (custom base path in mykaarma-config repo)
