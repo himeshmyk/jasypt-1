@@ -565,16 +565,16 @@ public final class JasyptPBEFileDecryptionCLI {
 
             for (int i = 0; i < sections.length; i++) {
                 String section = sections[i];
-                section = section.trim();
+//                section = section.trim();
                 if (section.isEmpty()) continue;
 
                 // Step 4: Process each section
                 String processedSection = processYamlSection(section, serviceName, envToJasyptPwdMap, commonJasyptArgs);
                 processedContent.append(processedSection);
                 if (i == sections.length - 1) {
-                    processedContent.append("\n");
+//                    processedContent.append("\n");
                 } else {
-                    processedContent.append("\n---\n");
+                    processedContent.append("---");
                 }
             }
 
@@ -632,7 +632,8 @@ public final class JasyptPBEFileDecryptionCLI {
             // Step 5: Clean up the temp file
             tempFile.delete();
 
-            return processedSection.trim();
+//            return processedSection.trim();
+            return processedSection;
         } catch (IOException e) {
             System.err.println("Error processing YAML section: " + e.getMessage());
             return section;  // Return the original section in case of error
