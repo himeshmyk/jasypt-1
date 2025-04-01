@@ -132,7 +132,7 @@ public final class JasyptPBEFileDecryptionCLI {
     static int pwdLength = 20;
     static boolean updateDeploymentFilesAsYaml = false;
     static String customMykaarmaConfigBasePath = "";
-//    static String customMykaarmaConfigBasePath = "api-qa-aws";
+//    static String customMykaarmaConfigBasePath = "qa-aws-api";
 
 
     //1. all services transportation
@@ -163,6 +163,9 @@ public final class JasyptPBEFileDecryptionCLI {
         put("pickup-delivery-aggregator-server", "pickup-delivery-aggregator");
         put("kpickupdelivery-processor", "kpickupdelivery-processor");
         put("mk-planetscale-connector", "mk-planetscale-connector");
+
+        put("calendar-api--server", "calendar-api");
+        put("leads-service", "leads-service");
     }};
 
     public static Map<String, String> serviceToApplicationYmlRelativePathMap = new HashMap<String, String>() {{
@@ -562,7 +565,16 @@ public final class JasyptPBEFileDecryptionCLI {
         List<Map<String, Object>> finalYamlDocumentsForThisService = new ArrayList<>();
         for (Map<String, Object> doc : yamlDocumentsForThisService) {
             processYamlDocument(serviceName, doc, envToJasyptPwdMap);
+
+
+
+
             finalYamlDocumentsForThisService.add(doc);
+
+
+
+
+
         }
 
         // Step 3: Write updated YAML back to file
