@@ -6,6 +6,8 @@ THIS UTILITY DOES NOT INTERACT WITH GIT. IT NEEDS EVERYTHING CLONED ON YOUR LOCA
 1. Clone this git repo on your local. Open in an IDE.
 2. Open the JasyptPBEFileDecryptionCLI file.
 3. Run the JasyptPBEFileDecryptionCLI main method with the configurations shared in screenshot, to achieve the results shared below.
+<img width="1536" alt="Screenshot 2025-04-02 at 12 36 09 AM" src="https://github.com/user-attachments/assets/2ed8bc7b-4ad8-4eb7-9229-203243f45d24" />
+
 
 -> Works as a utility for 1-click encryption/decryption of jasypt secrets for all environments of a service/services of a namespace.
 
