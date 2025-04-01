@@ -5,8 +5,7 @@ Run the JasyptPBEFileDecryptionCLI main method to achieve the results shared bel
 -> Works as a utility for 1-click encryption/decryption of jasypt secrets for all environments of a service/services of a namespace.
 
 **Limitations:**
-1. In case of application.yml, jasypt encryption configs (like `jasypt.encryptor.algorithm`, `jasypt.encryptor.salt-generator-classname`, etc) are not picked from the common profile at the top of the file. One needs to add the configs to each profile separately.
-2. In case of application.yml, Comments/whitespaces are getting removed from the application.yml after encryption/decryption.
+1. In case of application.yml, jasypt encryption configs (like `jasypt.encryptor.algorithm`, `jasypt.encryptor.salt-generator-classname`, etc) should **either be present in the 1st (common) section, or all properties must be overridden in the respective profile section**. If even a single jasypt encryptor related property is present in the environment specific section, this utility will ignore ALL jasypt encryptor related properties of the common section for that environment.   
 
 **Pre-requisites:**
 1. This utility will **NOT** work if:  

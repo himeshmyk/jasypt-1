@@ -555,13 +555,21 @@ public final class JasyptPBEFileDecryptionCLI {
             // Step 3: Initialize a StringBuilder to collect processed sections
             StringBuilder processedContent = new StringBuilder();
 
+            List<String> commonJasyptArgs = new ArrayList<>();
+            if (sections.length > 0) {
+                // Initialize SnakeYAML parser
+                Yaml yaml = new Yaml();
+                Map<String, Object> yamlData = yaml.load(sections[0]);  //common section
+                commonJasyptArgs = getJasyptArgs(yamlData);
+            }
+
             for (int i = 0; i < sections.length; i++) {
                 String section = sections[i];
                 section = section.trim();
                 if (section.isEmpty()) continue;
 
                 // Step 4: Process each section
-                String processedSection = processYamlSection(section, serviceName, envToJasyptPwdMap);
+                String processedSection = processYamlSection(section, serviceName, envToJasyptPwdMap, commonJasyptArgs);
                 processedContent.append(processedSection);
                 if (i == sections.length - 1) {
                     processedContent.append("\n");
@@ -579,7 +587,7 @@ public final class JasyptPBEFileDecryptionCLI {
         }
     }
 
-    private static String processYamlSection(String section, String serviceName, Map<String, String> envToJasyptPwdMap) {
+    private static String processYamlSection(String section, String serviceName, Map<String, String> envToJasyptPwdMap, List<String> commonJasyptArgs) {
         try {
             // Step 1: Create a temporary file
             File tempFile = File.createTempFile("yaml_section_" + System.currentTimeMillis(), ".yml");
@@ -596,19 +604,9 @@ public final class JasyptPBEFileDecryptionCLI {
             String jasyptPwd = getJasyptPwdFromYaml(yamlData, envToJasyptPwdMap);
             if (jasyptPwd == null) { return section; }
 
-            // Step 2: Flatten values for "jasypt"
-            List<String> newArgs = new ArrayList<>();
-            Map<String, Object> flatYamlMap = new HashMap<>();
-            if (yamlData.containsKey("jasypt")) {
-                flattenYaml("jasypt", (Map<String, Object>) yamlData.get("jasypt"), flatYamlMap);
-            } else {
-                flatYamlMap = yamlData;
-            }
-
-            for (String[] argumentNames: VALID_OPTIONAL_ARGUMENTS) {
-                if (flatYamlMap.containsKey(argumentNames[0])) {
-                    newArgs.add(argumentNames[0] + "=" + flatYamlMap.get(argumentNames[0]));
-                }
+            List<String> newArgs = getJasyptArgs(yamlData);
+            if (newArgs.isEmpty()) {
+                newArgs = commonJasyptArgs;
             }
 
             // Step 2: Write the current section to the temp file
@@ -639,6 +637,24 @@ public final class JasyptPBEFileDecryptionCLI {
             System.err.println("Error processing YAML section: " + e.getMessage());
             return section;  // Return the original section in case of error
         }
+    }
+
+    private static List<String> getJasyptArgs(Map<String, Object> yamlData) {
+        List<String> newArgs = new ArrayList<>();
+        // Step 2: Flatten values for "jasypt"
+        Map<String, Object> flatYamlMap = new HashMap<>();
+        if (yamlData.containsKey("jasypt")) {
+            flattenYaml("jasypt", (Map<String, Object>) yamlData.get("jasypt"), flatYamlMap);
+        } else {
+            flatYamlMap = yamlData;
+        }
+
+        for (String[] argumentNames: VALID_OPTIONAL_ARGUMENTS) {
+            if (flatYamlMap.containsKey(argumentNames[0])) {
+                newArgs.add(argumentNames[0] + "=" + flatYamlMap.get(argumentNames[0]));
+            }
+        }
+        return newArgs;
     }
 
     private static String getJasyptPwdFromYaml(Map<String, Object> yamlData, Map<String, String> envToJasyptPwdMap) {
