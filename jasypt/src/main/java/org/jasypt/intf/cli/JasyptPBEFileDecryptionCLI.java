@@ -164,6 +164,8 @@ public final class JasyptPBEFileDecryptionCLI {
         put("pickup-delivery-aggregator-server", "pickup-delivery-aggregator");
         put("kpickupdelivery-processor", "kpickupdelivery-processor");
         put("mk-planetscale-connector", "mk-planetscale-connector");
+        put("customer-actions", "customer-actions");
+        put("customer-aggregator-server", "customer-profile-aggregator");
 
         put("calendar-api--server", "calendar-api");
         put("leads-service", "leads-service");
