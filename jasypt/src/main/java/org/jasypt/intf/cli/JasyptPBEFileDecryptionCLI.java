@@ -172,6 +172,7 @@ public final class JasyptPBEFileDecryptionCLI {
     }};
 
     public static Map<String, String> serviceToApplicationYmlRelativePathMap = new HashMap<String, String>() {{
+        put("kcustomer-api", "kcustomer-api/server/src/main/resources/application.yml");
         put("email-integration", "email-integration/src/main/resources/application.yml");
         put("vault-api", "vault/server/src/main/resources/application.yml");
         put("mkhtmltopdf-api", "mkhtmltopdf/server/src/main/resources/application.yml");
@@ -600,7 +601,7 @@ public final class JasyptPBEFileDecryptionCLI {
             // Parse the YAML string into a Map
             Map<String, Object> yamlData = yaml.load(section);
 
-            String profile = ((String) yamlData.get("spring.profiles"));
+            String profile = getProfileNameFromYaml(yamlData);
             if (isEmpty(profile) || !shouldProcessForThisEnv(profile)) { return section; }
 
             String jasyptPwd = getJasyptPwdFromYaml(yamlData, envToJasyptPwdMap);
@@ -660,15 +661,35 @@ public final class JasyptPBEFileDecryptionCLI {
         return newArgs;
     }
 
+    private static String getProfileNameFromYaml(Map<String, Object> yamlData) {
+        String profile = ((String) yamlData.get("spring.profiles"));
+        if (isEmpty(profile)) {
+            profile = ((String) yamlData.get("spring.config.activate.on-profile"));
+        }
+        return profile;
+    }
+
+    private static boolean checkValidProfileNameFromYaml(Map<String, Object> yamlData) {
+        if (yamlData.containsKey("spring.profiles")
+            && ((String) yamlData.get("spring.profiles")) != null
+            && ENV.getEnumValue(((String) yamlData.get("spring.profiles"))) != null) {
+            return true;
+        }
+        if (yamlData.containsKey("spring.config.activate.on-profile")
+            && ((String) yamlData.get("spring.config.activate.on-profile")) != null
+            && ENV.getEnumValue(((String) yamlData.get("spring.config.activate.on-profile"))) != null) {
+            return true;
+        }
+        return false;
+    }
+
     private static String getJasyptPwdFromYaml(Map<String, Object> yamlData, Map<String, String> envToJasyptPwdMap) {
-        if (!yamlData.containsKey("spring.profiles")
-            || ((String) yamlData.get("spring.profiles")) == null
-            || ENV.getEnumValue(((String) yamlData.get("spring.profiles"))) == null) {
+        if (!checkValidProfileNameFromYaml(yamlData)) {
             System.out.println(" WARN - For  + serviceName +  and env= + env +  - no jasypt pwd found");
             return null;
         }
 
-        String profile = ((String) yamlData.get("spring.profiles"));
+        String profile = getProfileNameFromYaml(yamlData);
         if (!shouldProcessForThisEnv(profile)) {
             return null;
         }
